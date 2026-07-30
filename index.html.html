@@ -187,17 +187,22 @@
         const formatarMoeda = (valor) => valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
         
         const formatarDataBR = (dateStr) => {
-            if(dateStr.length === 7) return formatarMesAno(dateStr); // fallback dados antigos
-            let [y, m, d] = dateStr.split('-');
-            return `${d}/${m}/${y}`;
+            if(!dateStr) return '--/--/----';
+            if(dateStr.length === 7) return formatarMesAno(dateStr); 
+            let parts = dateStr.split('-');
+            if(parts.length !== 3) return dateStr;
+            return `${parts[2]}/${parts[1]}/${parts[0]}`;
         };
         
         const formatarMesAno = (yyyy_mm) => {
-            let [y, m] = yyy_mm.split('-');
-            return `${m}/${y}`;
+            if(!yyyy_mm) return '--/----';
+            let parts = yyy_mm.split('-');
+            if(parts.length !== 2) return yyy_mm;
+            return `${parts[1]}/${parts[0]}`;
         };
 
         const addMonths = (yyyy_mm, monthsToAdd) => {
+            if(!yyyy_mm) return '';
             let [y, m] = yyy_mm.split('-').map(Number);
             m += monthsToAdd;
             while(m > 12) { m -= 12; y++; }
@@ -206,10 +211,11 @@
 
         // Calcula quando começa o pagamento (dia <= 20 = mes seguinte; senao = 2 meses depois)
         function getPrimeiroMesPagamento(dateStr) {
-            let [y, m, d] = dateStr.split('-');
-            y = parseInt(y);
-            m = parseInt(m);
-            d = d ? parseInt(d) : 1; // se for dado antigo (YYYY-MM), assume dia 1
+            if(!dateStr) return mesAtualStr;
+            let parts = dateStr.split('-');
+            let y = parseInt(parts[0]) || anoAtual;
+            let m = parseInt(parts[1]) || mesAtualNum;
+            let d = parts[2] ? parseInt(parts[2]) : 1; 
 
             let mesesAdicionais = (d <= 20) ? 1 : 2;
             m += mesesAdicionais;
@@ -220,15 +226,15 @@
             return `${y}-${String(m).padStart(2, '0')}`;
         }
 
-        // Calcula o 5º dia útil do mês
         function quintoDiaUtil(yyyy_mm) {
+            if(!yyyy_mm) return '--/--/----';
             let [y, m] = yyy_mm.split('-').map(Number);
             let data = new Date(y, m - 1, 1);
             let diasUteis = 0;
             
             while (diasUteis < 5) {
                 let diaSemana = data.getDay();
-                if (diaSemana !== 0 && diaSemana !== 6) { // 0 = Domingo, 6 = Sábado
+                if (diaSemana !== 0 && diaSemana !== 6) { 
                     diasUteis++;
                 }
                 if (diasUteis < 5) {
@@ -245,14 +251,14 @@
         // Lógica de Negócios (Comissões)
         function obterVolumeMes(yyyy_mm) {
             return vendas
-                .filter(v => v.status === 'ativo' && v.data.startsWith(yyyy_mm)) // Pega tanto YYYY-MM-DD quanto YYYY-MM
-                .reduce((sum, v) => sum + v.valor, 0);
+                .filter(v => v.status === 'ativo' && (v.data || '').startsWith(yyyy_mm)) 
+                .reduce((sum, v) => sum + (parseFloat(v.valor) || 0), 0);
         }
 
         function obterTaxaComissao(volume) {
-            if(volume <= 1000000) return 0.005; // 0.5%
-            if(volume <= 1500000) return 0.0075; // 0.75%
-            return 0.01; // 1.0%
+            if(volume <= 1000000) return 0.005; 
+            if(volume <= 1500000) return 0.0075; 
+            return 0.01; 
         }
 
         function adicionarVenda(e) {
@@ -264,7 +270,7 @@
                 contrato: document.getElementById('contrato').value,
                 tipo: document.getElementById('tipo').value,
                 valor: parseFloat(document.getElementById('valor').value),
-                data: document.getElementById('data').value, // YYYY-MM-DD
+                data: document.getElementById('data').value, 
                 status: 'ativo',
                 mesesSuspensos: [] 
             };
@@ -278,89 +284,107 @@
         function cancelarVenda(id) {
             if(confirm('Tem certeza que deseja cancelar esta venda? Você perderá o restante da comissão.')) {
                 let venda = vendas.find(v => v.id === id);
-                if(venda) venda.status = 'cancelado';
-                salvarDados();
-                atualizarDashboard();
+                if(venda) {
+                    venda.status = 'cancelado';
+                    salvarDados();
+                    atualizarDashboard();
+                }
             }
         }
 
         // Dashboard e Cálculos
         function atualizarDashboard() {
-            const mesSelecionado = document.getElementById('mesFiltro').value;
-            
-            // 1. Calcular volume vendido NO MÊS SELECIONADO para definir a faixa do mês
-            const volumeVendidoNoMes = obterVolumeMes(mesSelecionado);
-            const taxaMesSelecionado = obterTaxaComissao(volumeVendidoNoMes);
-            
-            document.getElementById('volVendido').textContent = formatarMoeda(volumeVendidoNoMes);
-            document.getElementById('faixaComissao').textContent = `Faixa de Comissão: ${(taxaMesSelecionado * 100).toFixed(2)}%`;
-
-            // 2. Calcular comissões a receber NESTE MÊS SELECIONADO
-            let comissaoReceberNoMes = 0;
-
-            vendas.forEach(venda => {
-                if(venda.status === 'cancelado') return;
-
-                // A comissão total da venda é baseada no mês em que a VENDA foi feita
-                const mesDaVenda = venda.data.substring(0, 7); 
-                const volumeDaEpoca = obterVolumeMes(mesDaVenda);
-                const taxaDaEpoca = obterTaxaComissao(volumeDaEpoca);
-                const comissaoTotalVenda = venda.valor * taxaDaEpoca;
+            try {
+                const mesSelecionado = document.getElementById('mesFiltro').value;
                 
-                const qtdParcelas = venda.tipo === 'automovel' ? 4 : 12;
-                const valorParcela = comissaoTotalVenda / qtdParcelas;
+                const volumeVendidoNoMes = obterVolumeMes(mesSelecionado);
+                const taxaMesSelecionado = obterTaxaComissao(volumeVendidoNoMes);
+                
+                document.getElementById('volVendido').textContent = formatarMoeda(volumeVendidoNoMes);
+                document.getElementById('faixaComissao').textContent = `Faixa de Comissão: ${(taxaMesSelecionado * 100).toFixed(2)}%`;
 
-                // Descobre quando começa a pagar
-                const mesInicioPagamento = getPrimeiroMesPagamento(venda.data);
+                let comissaoReceberNoMes = 0;
 
-                for(let i = 0; i < qtdParcelas; i++) {
-                    let mesDaParcela = addMonths(mesInicioPagamento, i);
+                vendas.forEach(venda => {
+                    if(venda.status === 'cancelado') return;
+
+                    const dataSegura = venda.data || dataAtualStr;
+                    const mesDaVenda = dataSegura.substring(0, 7); 
+                    const volumeDaEpoca = obterVolumeMes(mesDaVenda);
+                    const taxaDaEpoca = obterTaxaComissao(volumeDaEpoca);
+                    const valorSeguro = parseFloat(venda.valor) || 0;
+                    const comissaoTotalVenda = valorSeguro * taxaDaEpoca;
                     
-                    if(mesDaParcela === mesSelecionado) {
-                        if(!venda.mesesSuspensos.includes(mesDaParcela)) {
-                            comissaoReceberNoMes += valorParcela;
+                    const qtdParcelas = venda.tipo === 'automovel' ? 4 : 12;
+                    const valorParcela = comissaoTotalVenda / qtdParcelas;
+
+                    const mesInicioPagamento = getPrimeiroMesPagamento(dataSegura);
+                    
+                    // Fallback para evitar travamentos com dados antigos
+                    const suspensos = venda.mesesSuspensos || []; 
+
+                    for(let i = 0; i < qtdParcelas; i++) {
+                        let mesDaParcela = addMonths(mesInicioPagamento, i);
+                        
+                        if(mesDaParcela === mesSelecionado) {
+                            if(!suspensos.includes(mesDaParcela)) {
+                                comissaoReceberNoMes += valorParcela;
+                            }
                         }
                     }
-                }
-            });
+                });
 
-            document.getElementById('comissaoVariavel').textContent = formatarMoeda(comissaoReceberNoMes);
-            document.getElementById('totalReceber').textContent = formatarMoeda(FIXO + comissaoReceberNoMes);
+                document.getElementById('comissaoVariavel').textContent = formatarMoeda(comissaoReceberNoMes);
+                document.getElementById('totalReceber').textContent = formatarMoeda(FIXO + comissaoReceberNoMes);
 
-            renderizarTabela();
+                renderizarTabela();
+            } catch (error) {
+                console.error("Erro ao atualizar o painel: ", error);
+                // Mesmo com erro, tenta forçar a renderização da tabela para não sumir
+                renderizarTabela();
+            }
         }
 
         function renderizarTabela() {
             const tbody = document.getElementById('corpoTabela');
+            if(!tbody) return;
             tbody.innerHTML = '';
 
-            // Ordenar da mais recente para a mais antiga
-            const vendasOrdenadas = [...vendas].sort((a,b) => b.data.localeCompare(a.data));
+            try {
+                const vendasOrdenadas = [...vendas].sort((a,b) => (b.data || '').localeCompare(a.data || ''));
 
-            vendasOrdenadas.forEach(venda => {
-                const tr = document.createElement('tr');
-                
-                const statusBadge = venda.status === 'ativo' 
-                    ? `<span class="badge ativo">Ativo</span>` 
-                    : `<span class="badge cancelado">Cancelado</span>`;
+                vendasOrdenadas.forEach(venda => {
+                    const tr = document.createElement('tr');
+                    
+                    const statusBadge = venda.status === 'ativo' 
+                        ? `<span class="badge ativo">Ativo</span>` 
+                        : `<span class="badge cancelado">Cancelado</span>`;
 
-                const mesInicio = getPrimeiroMesPagamento(venda.data);
+                    const dataSegura = venda.data || dataAtualStr;
+                    const valorSeguro = parseFloat(venda.valor) || 0;
+                    const nomeSeguro = venda.nome || 'Sem Nome';
+                    const indSeguro = venda.indicacao || '-';
+                    const ctrSeguro = venda.contrato || '-';
+                    const mesInicio = getPrimeiroMesPagamento(dataSegura);
 
-                tr.innerHTML = `
-                    <td>${formatarDataBR(venda.data)}</td>
-                    <td><strong>${venda.nome}</strong></td>
-                    <td>Ind: ${venda.indicacao}<br>Ctr: ${venda.contrato}</td>
-                    <td>${venda.tipo === 'automovel' ? 'Auto (4x)' : 'Imóvel (12x)'}</td>
-                    <td>${formatarMoeda(venda.valor)}</td>
-                    <td>${formatarMesAno(mesInicio)}</td>
-                    <td>${statusBadge}</td>
-                    <td>
-                        <button class="btn-manage" onclick="abrirModalParcelas(${venda.id})">Parcelas</button>
-                        ${venda.status === 'ativo' ? `<button class="btn-danger" onclick="cancelarVenda(${venda.id})">Cancelar</button>` : ''}
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
+                    tr.innerHTML = `
+                        <td>${formatarDataBR(dataSegura)}</td>
+                        <td><strong>${nomeSeguro}</strong></td>
+                        <td>Ind: ${indSeguro}<br>Ctr: ${ctrSeguro}</td>
+                        <td>${venda.tipo === 'automovel' ? 'Auto (4x)' : 'Imóvel (12x)'}</td>
+                        <td>${formatarMoeda(valorSeguro)}</td>
+                        <td>${formatarMesAno(mesInicio)}</td>
+                        <td>${statusBadge}</td>
+                        <td>
+                            <button class="btn-manage" onclick="abrirModalParcelas(${venda.id})">Parcelas</button>
+                            ${venda.status === 'ativo' ? `<button class="btn-danger" onclick="cancelarVenda(${venda.id})">Cancelar</button>` : ''}
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (error) {
+                console.error("Erro ao renderizar tabela: ", error);
+            }
         }
 
         // Modal de Parcelas
@@ -368,12 +392,14 @@
             const venda = vendas.find(v => v.id === id);
             if(!venda) return;
 
-            document.getElementById('modalClienteNome').textContent = venda.nome;
+            document.getElementById('modalClienteNome').textContent = venda.nome || 'Sem Nome';
             
-            const mesDaVenda = venda.data.substring(0, 7);
+            const dataSegura = venda.data || dataAtualStr;
+            const mesDaVenda = dataSegura.substring(0, 7);
             const volumeDaEpoca = obterVolumeMes(mesDaVenda);
             const taxaDaEpoca = obterTaxaComissao(volumeDaEpoca);
-            const comissaoTotalVenda = venda.valor * taxaDaEpoca;
+            const valorSeguro = parseFloat(venda.valor) || 0;
+            const comissaoTotalVenda = valorSeguro * taxaDaEpoca;
             
             const qtdParcelas = venda.tipo === 'automovel' ? 4 : 12;
             const valorParcela = comissaoTotalVenda / qtdParcelas;
@@ -384,11 +410,12 @@
             const lista = document.getElementById('listaParcelas');
             lista.innerHTML = '';
             
-            const mesInicio = getPrimeiroMesPagamento(venda.data);
+            const mesInicio = getPrimeiroMesPagamento(dataSegura);
+            const suspensos = venda.mesesSuspensos || [];
 
             for(let i = 0; i < qtdParcelas; i++) {
                 let mesParcela = addMonths(mesInicio, i);
-                let isSuspenso = venda.mesesSuspensos.includes(mesParcela);
+                let isSuspenso = suspensos.includes(mesParcela);
                 let isCancelado = venda.status === 'cancelado';
 
                 let dataPagamento = quintoDiaUtil(mesParcela);
@@ -425,6 +452,7 @@
         function toggleParcela(vendaId, mesParcela) {
             let venda = vendas.find(v => v.id === vendaId);
             if(venda) {
+                venda.mesesSuspensos = venda.mesesSuspensos || [];
                 if(venda.mesesSuspensos.includes(mesParcela)) {
                     venda.mesesSuspensos = venda.mesesSuspensos.filter(m => m !== mesParcela);
                 } else {
