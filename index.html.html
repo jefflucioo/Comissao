@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Comissões - Porto Consórcios</title>
+    <style>
+        :root {
+            --porto-blue: #004691;
+            --porto-light: #00a1fc;
+            --porto-yellow: #f8c822;
+            --bg: #f4f7f6;
+            --text: #333;
+        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); margin:0; color: var(--text); }
+        header { 
+            background: var(--porto-blue); color: white; padding: 20px; 
+            font-size: 24px; font-weight: bold; border-bottom: 5px solid var(--porto-yellow);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        header span { font-size: 14px; font-weight: normal; background: rgba(255,255,255,0.2); padding: 5px 10px; border-radius: 4px; }
+        .container { max-width: 1200px; margin: 20px auto; padding: 0 15px; }
+        .card { background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); padding: 25px; margin-bottom: 20px; }
+        .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        
+        .summary-box { background: white; border: 1px solid #e0e0e0; padding: 20px; border-radius: 8px; text-align: center; }
+        .summary-box h3 { margin: 0 0 10px 0; color: #666; font-size: 16px; }
+        .summary-box p { margin: 0; font-size: 28px; font-weight: bold; color: var(--porto-blue); }
+        .summary-box.main { background: var(--porto-blue); color: white; border: none; }
+        .summary-box.main p, .summary-box.main h3 { color: white; }
+        
+        label { display: block; margin-top: 15px; font-weight: 600; font-size: 14px; }
+        input, select, button { width: 100%; padding: 12px; margin-top: 5px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 15px; }
+        input:focus, select:focus { outline: none; border-color: var(--porto-light); box-shadow: 0 0 0 2px rgba(0, 161, 252, 0.2); }
+        
+        button { background: var(--porto-light); color: white; border: none; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        button:hover { background: #008be0; }
+        button.btn-danger { background: #dc3545; color: white; padding: 6px 12px; font-size: 12px; width: auto; }
+        button.btn-danger:hover { background: #c82333; }
+        button.btn-manage { background: #6c757d; color: white; padding: 6px 12px; font-size: 12px; width: auto; margin-right: 5px; }
+        button.btn-manage:hover { background: #5a6268; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f8f9fa; color: #555; }
+        
+        .modal { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.6); align-items: center; justify-content: center; z-index: 1000; }
+        .modal-content { background: white; width: 450px; padding: 25px; border-radius: 8px; max-height: 80vh; overflow-y: auto; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        .modal-header h2 { margin: 0; font-size: 18px; color: var(--porto-blue); }
+        .close-btn { background: none; border: none; font-size: 20px; color: #999; cursor: pointer; width: auto; padding: 0; margin: 0; }
+        
+        .installment-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
+        .badge { padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+        .badge.ativo { background: #d4edda; color: #155724; }
+        .badge.cancelado { background: #f8d7da; color: #721c24; }
+        
+        .toggle-btn { padding: 4px 10px; border-radius: 20px; font-size: 12px; cursor: pointer; border: 1px solid transparent; width: 80px; text-align: center; }
+        .toggle-pago { background: #d4edda; color: #155724; border-color: #c3e6cb; }
+        .toggle-suspenso { background: #fff3cd; color: #856404; border-color: #ffeeba; }
+        
+        .month-selector-wrapper { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+        .month-selector-wrapper input { width: auto; margin: 0; }
+    </style>
+</head>
+<body>
+    <header>
+        <div>Porto Consórcios | Meu Painel</div>
+        <span>Fixo Mensal: R$ 2.000,00</span>
+    </header>
+
+    <div class="container">
+        <!-- Dashboard Resumo -->
+        <div class="card">
+            <div class="month-selector-wrapper">
+                <h2 style="margin:0;">Resumo Financeiro do Mês: </h2>
+                <input type="month" id="mesFiltro" onchange="atualizarDashboard()">
+            </div>
+            
+            <div class="grid-3">
+                <div class="summary-box">
+                    <h3>Volume Vendido (Neste Mês)</h3>
+                    <p id="volVendido">R$ 0,00</p>
+                    <small id="faixaComissao" style="color: #888;">Faixa: 0%</small>
+                </div>
+                <div class="summary-box">
+                    <h3>Comissão Variável a Receber</h3>
+                    <p id="comissaoVariavel">R$ 0,00</p>
+                    <small style="color: #888;">Soma das parcelas ativas no mês selecionado</small>
+                </div>
+                <div class="summary-box main">
+                    <h3>Total a Receber (Fixo + Variável)</h3>
+                    <p id="totalReceber">R$ 2.000,00</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid-3" style="grid-template-columns: 1fr 2.5fr;">
+            <!-- Formulário -->
+            <div class="card">
+                <h2 style="margin-top:0; color: var(--porto-blue);">Registrar Venda</h2>
+                <form id="formVenda" onsubmit="adicionarVenda(event)">
+                    <label>Nome do Cliente</label>
+                    <input type="text" id="nome" required placeholder="Ex: João Silva">
+                    
+                    <label>Nº Indicação</label>
+                    <input type="text" id="indicacao" required placeholder="Ex: 123456">
+                    
+                    <label>Nº Contrato</label>
+                    <input type="text" id="contrato" required placeholder="Ex: 987654">
+                    
+                    <label>Tipo de Consórcio</label>
+                    <select id="tipo" required>
+                        <option value="automovel">Automóvel (Comissão em 4x)</option>
+                        <option value="imovel">Imóvel (Comissão em 12x)</option>
+                    </select>
+                    
+                    <label>Valor da Venda (R$)</label>
+                    <input type="number" id="valor" step="0.01" required placeholder="Ex: 150000.00">
+                    
+                    <label>Mês/Ano da Venda</label>
+                    <input type="month" id="data" required>
+                    
+                    <button type="submit" style="margin-top: 20px;">Cadastrar Venda</button>
+                </form>
+            </div>
+
+            <!-- Tabela -->
+            <div class="card">
+                <h2 style="margin-top:0; color: var(--porto-blue);">Minhas Vendas</h2>
+                <div style="overflow-x: auto;">
+                    <table id="tabelaVendas">
+                        <thead>
+                            <tr>
+                                <th>Data</th>
+                                <th>Cliente</th>
+                                <th>Indicação / Contrato</th>
+                                <th>Tipo</th>
+                                <th>Valor</th>
+                                <th>Status</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="corpoTabela"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Gerenciar Parcelas -->
+    <div id="modalParcelas" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Gerenciar Parcelas</h2>
+                <button class="close-btn" onclick="fecharModal()">&times;</button>
+            </div>
+            <p style="font-size: 14px; color: #555; margin-bottom: 20px;">
+                Cliente: <strong id="modalClienteNome"></strong><br>
+                Comissão Total: <strong id="modalComissaoTotal"></strong> (<span id="modalQtdParcelas"></span> parcelas)
+            </p>
+            <div id="listaParcelas"></div>
+        </div>
+    </div>
+
+    <script>
+        // Inicialização
+        const FIXO = 2000;
+        let vendas = JSON.parse(localStorage.getItem('vendasPorto')) || [];
+        
+        // Define o mês atual nos inputs
+        const hoje = new Date();
+        const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
+        document.getElementById('mesFiltro').value = mesAtual;
+        document.getElementById('data').value = mesAtual;
+
+        // Funções Utilitárias
+        const formatarMoeda = (valor) => valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        const addMonths = (dateStr, monthsToAdd) => {
+            let [y, m] = dateStr.split('-').map(Number);
+            m += monthsToAdd;
+            while(m > 12) { m -= 12; y++; }
+            return `${y}-${String(m).padStart(2, '0')}`;
+        };
+        const formatarMesAno = (yyyy_mm) => {
+            let [y, m] = yyy_mm.split('-');
+            return `${m}/${y}`;
+        };
+
+        function salvarDados() {
+            localStorage.setItem('vendasPorto', JSON.stringify(vendas));
+        }
+
+        // Lógica de Negócios (Comissões)
+        function obterVolumeMes(yyyy_mm) {
+            return vendas
+                .filter(v => v.data === yyy_mm && v.status === 'ativo')
+                .reduce((sum, v) => sum + v.valor, 0);
+        }
+
+        function obterTaxaComissao(volume) {
+            if(volume <= 1000000) return 0.005; // 0.5%
+            if(volume <= 1500000) return 0.0075; // 0.75%
+            return 0.01; // 1.0%
+        }
+
+        function adicionarVenda(e) {
+            e.preventDefault();
+            const novaVenda = {
+                id: Date.now(),
+                nome: document.getElementById('nome').value,
+                indicacao: document.getElementById('indicacao').value,
+                contrato: document.getElementById('contrato').value,
+                tipo: document.getElementById('tipo').value,
+                valor: parseFloat(document.getElementById('valor').value),
+                data: document.getElementById('data').value,
+                status: 'ativo',
+                mesesSuspensos: [] // Guarda os meses YYYY-MM que o corretor marcou como não pagos
+            };
+            vendas.push(novaVenda);
+            salvarDados();
+            e.target.reset();
+            document.getElementById('data').value = mesAtual; // reseta a data para o mes atual
+            atualizarDashboard();
+        }
+
+        function cancelarVenda(id) {
+            if(confirm('Tem certeza que deseja cancelar esta venda? Você perderá o restante da comissão.')) {
+                let venda = vendas.find(v => v.id === id);
+                if(venda) venda.status = 'cancelado';
+                salvarDados();
+                atualizarDashboard();
+            }
+        }
+
+        // Dashboard e Cálculos
+        function atualizarDashboard() {
+            const mesSelecionado = document.getElementById('mesFiltro').value;
+            
+            // 1. Calcular volume vendido NO MÊS SELECIONADO para definir a faixa
+            const volumeVendidoNoMes = obterVolumeMes(mesSelecionado);
+            const taxaMesSelecionado = obterTaxaComissao(volumeVendidoNoMes);
+            
+            document.getElementById('volVendido').textContent = formatarMoeda(volumeVendidoNoMes);
+            document.getElementById('faixaComissao').textContent = `Faixa de Comissão: ${(taxaMesSelecionado * 100).toFixed(2)}%`;
+
+            // 2. Calcular comissões a receber NESTE MÊS SELECIONADO de todas as vendas
+            let comissaoReceberNoMes = 0;
+
+            vendas.forEach(venda => {
+                if(venda.status === 'cancelado') return;
+
+                // A comissão total da venda é baseada na faixa atingida no mês em que ela foi feita
+                const volumeDaEpoca = obterVolumeMes(venda.data);
+                const taxaDaEpoca = obterTaxaComissao(volumeDaEpoca);
+                const comissaoTotalVenda = venda.valor * taxaDaEpoca;
+                
+                const qtdParcelas = venda.tipo === 'automovel' ? 4 : 12;
+                const valorParcela = comissaoTotalVenda / qtdParcelas;
+
+                // Verifica se o mesSelecionado cai dentro das parcelas desta venda
+                for(let i = 0; i < qtdParcelas; i++) {
+                    let mesDaParcela = addMonths(venda.data, i);
+                    
+                    // Se o mês da parcela for igual ao mês do dashboard, e não estiver suspensa
+                    if(mesDaParcela === mesSelecionado) {
+                        if(!venda.mesesSuspensos.includes(mesDaParcela)) {
+                            comissaoReceberNoMes += valorParcela;
+                        }
+                    }
+                }
+            });
+
+            document.getElementById('comissaoVariavel').textContent = formatarMoeda(comissaoReceberNoMes);
+            document.getElementById('totalReceber').textContent = formatarMoeda(FIXO + comissaoReceberNoMes);
+
+            renderizarTabela();
+        }
+
+        function renderizarTabela() {
+            const tbody = document.getElementById('corpoTabela');
+            tbody.innerHTML = '';
+
+            // Ordenar da mais recente para a mais antiga
+            const vendasOrdenadas = [...vendas].sort((a,b) => b.data.localeCompare(a.data));
+
+            vendasOrdenadas.forEach(venda => {
+                const tr = document.createElement('tr');
+                
+                const statusBadge = venda.status === 'ativo' 
+                    ? `<span class="badge ativo">Ativo</span>` 
+                    : `<span class="badge cancelado">Cancelado</span>`;
+
+                tr.innerHTML = `
+                    <td>${formatarMesAno(venda.data)}</td>
+                    <td><strong>${venda.nome}</strong></td>
+                    <td>Ind: ${venda.indicacao}<br>Ctr: ${venda.contrato}</td>
+                    <td>${venda.tipo === 'automovel' ? 'Auto (4x)' : 'Imóvel (12x)'}</td>
+                    <td>${formatarMoeda(venda.valor)}</td>
+                    <td>${statusBadge}</td>
+                    <td>
+                        <button class="btn-manage" onclick="abrirModalParcelas(${venda.id})">Parcelas</button>
+                        ${venda.status === 'ativo' ? `<button class="btn-danger" onclick="cancelarVenda(${venda.id})">Cancelar</button>` : ''}
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Modal de Parcelas
+        function abrirModalParcelas(id) {
+            const venda = vendas.find(v => v.id === id);
+            if(!venda) return;
+
+            document.getElementById('modalClienteNome').textContent = venda.nome;
+            
+            const volumeDaEpoca = obterVolumeMes(venda.data);
+            const taxaDaEpoca = obterTaxaComissao(volumeDaEpoca);
+            const comissaoTotalVenda = venda.valor * taxaDaEpoca;
+            
+            const qtdParcelas = venda.tipo === 'automovel' ? 4 : 12;
+            const valorParcela = comissaoTotalVenda / qtdParcelas;
+
+            document.getElementById('modalComissaoTotal').textContent = formatarMoeda(comissaoTotalVenda);
+            document.getElementById('modalQtdParcelas').textContent = qtdParcelas;
+
+            const lista = document.getElementById('listaParcelas');
+            lista.innerHTML = '';
+
+            for(let i = 0; i < qtdParcelas; i++) {
+                let mesParcela = addMonths(venda.data, i);
+                let isSuspenso = venda.mesesSuspensos.includes(mesParcela);
+                let isCancelado = venda.status === 'cancelado';
+
+                let row = document.createElement('div');
+                row.className = 'installment-row';
+                
+                let toggleClass = isSuspenso ? 'toggle-suspenso' : 'toggle-pago';
+                let toggleText = isSuspenso ? 'Suspenso' : 'Pago';
+                if(isCancelado) {
+                    toggleClass = 'toggle-suspenso';
+                    toggleText = 'Bloqueado';
+                }
+
+                row.innerHTML = `
+                    <div>
+                        <strong>Parcela ${i+1}</strong> - ${formatarMesAno(mesParcela)}<br>
+                        <small>${formatarMoeda(valorParcela)}</small>
+                    </div>
+                    <div>
+                        <button class="toggle-btn ${toggleClass}" 
+                            ${isCancelado ? 'disabled' : `onclick="toggleParcela(${venda.id}, '${mesParcela}')"`}>
+                            ${toggleText}
+                        </button>
+                    </div>
+                `;
+                lista.appendChild(row);
+            }
+
+            document.getElementById('modalParcelas').style.display = 'flex';
+        }
+
+        function toggleParcela(vendaId, mesParcela) {
+            let venda = vendas.find(v => v.id === vendaId);
+            if(venda) {
+                if(venda.mesesSuspensos.includes(mesParcela)) {
+                    venda.mesesSuspensos = venda.mesesSuspensos.filter(m => m !== mesParcela); // Remove (marca como pago)
+                } else {
+                    venda.mesesSuspensos.push(mesParcela); // Adiciona (marca como suspenso)
+                }
+                salvarDados();
+                abrirModalParcelas(vendaId); // recarrega modal
+                atualizarDashboard(); // atualiza valores por trás
+            }
+        }
+
+        function fecharModal() {
+            document.getElementById('modalParcelas').style.display = 'none';
+        }
+
+        // Inicializa o painel ao carregar a página
+        atualizarDashboard();
+    </script>
+</body>
+</html>
