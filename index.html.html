@@ -62,11 +62,13 @@
         .month-selector-wrapper { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
         .month-selector-wrapper input { width: auto; margin: 0; }
         .hint { font-size: 12px; color: #666; margin-top: 3px; display: block; }
+        
+        #loadingData { font-size: 14px; color: var(--porto-blue); margin-left: 15px; display: none; }
     </style>
 </head>
 <body>
     <header>
-        <div>Porto Consórcios | Meu Painel</div>
+        <div>Porto Consórcios | Meu Painel <span id="loadingData">Sincronizando com a nuvem...</span></div>
         <span>Fixo Mensal: R$ 2.000,00</span>
     </header>
 
@@ -166,10 +168,28 @@
         </div>
     </div>
 
-    <script>
-        // Inicialização
+    <!-- Script tipo módulo para permitir importações do Firebase -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+        // Sua configuração do Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyBudclBy-XdJkXWbvp9u_JbSC9BDf24qwE",
+            authDomain: "comissao-87405.firebaseapp.com",
+            projectId: "comissao-87405",
+            storageBucket: "comissao-87405.firebasestorage.app",
+            messagingSenderId: "878089906709",
+            appId: "1:878089906709:web:10342c172a2b665088fc1c"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // Inicialização Local
         const FIXO = 2000;
-        let vendas = JSON.parse(localStorage.getItem('vendasPorto')) || [];
+        let vendas = [];
+        let vendaIdAbertaNoModal = null;
         
         // Define as datas atuais nos inputs
         const hoje = new Date();
@@ -182,19 +202,32 @@
         
         document.getElementById('mesFiltro').value = mesAtualStr;
         document.getElementById('data').value = dataAtualStr;
+        document.getElementById('loadingData').style.display = 'inline';
+
+        // Escuta as alterações no Firebase em tempo real (Sincronização Nuvem)
+        onSnapshot(collection(db, "vendas"), (snapshot) => {
+            vendas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            document.getElementById('loadingData').style.display = 'none';
+            window.atualizarDashboard();
+            
+            // Se o modal estiver aberto, atualiza ele pra refletir mudanças feitas no celular/PC em tempo real
+            if(vendaIdAbertaNoModal) {
+                window.abrirModalParcelas(vendaIdAbertaNoModal);
+            }
+        });
 
         // Funções Utilitárias de Data e Moeda
         const formatarMoeda = (valor) => valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
         
         const formatarDataBR = (dateStr) => {
             if(!dateStr) return '--/--/----';
-            if(dateStr.length === 7) return formatarMesAno(dateStr); 
+            if(dateStr.length === 7) return window.formatarMesAno(dateStr); 
             let parts = dateStr.split('-');
             if(parts.length !== 3) return dateStr;
             return `${parts[2]}/${parts[1]}/${parts[0]}`;
         };
         
-        const formatarMesAno = (yyyy_mm) => {
+        window.formatarMesAno = (yyyy_mm) => {
             if(!yyyy_mm) return '--/----';
             let parts = yyy_mm.split('-');
             if(parts.length !== 2) return yyy_mm;
@@ -209,7 +242,6 @@
             return `${y}-${String(m).padStart(2, '0')}`;
         };
 
-        // Calcula quando começa o pagamento (dia <= 20 = mes seguinte; senao = 2 meses depois)
         function getPrimeiroMesPagamento(dateStr) {
             if(!dateStr) return mesAtualStr;
             let parts = dateStr.split('-');
@@ -219,10 +251,7 @@
 
             let mesesAdicionais = (d <= 20) ? 1 : 2;
             m += mesesAdicionais;
-            while(m > 12) {
-                m -= 12;
-                y++;
-            }
+            while(m > 12) { m -= 12; y++; }
             return `${y}-${String(m).padStart(2, '0')}`;
         }
 
@@ -234,21 +263,12 @@
             
             while (diasUteis < 5) {
                 let diaSemana = data.getDay();
-                if (diaSemana !== 0 && diaSemana !== 6) { 
-                    diasUteis++;
-                }
-                if (diasUteis < 5) {
-                    data.setDate(data.getDate() + 1);
-                }
+                if (diaSemana !== 0 && diaSemana !== 6) { diasUteis++; }
+                if (diasUteis < 5) { data.setDate(data.getDate() + 1); }
             }
             return `${String(data.getDate()).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
         }
 
-        function salvarDados() {
-            localStorage.setItem('vendasPorto', JSON.stringify(vendas));
-        }
-
-        // Lógica de Negócios (Comissões)
         function obterVolumeMes(yyyy_mm) {
             return vendas
                 .filter(v => v.status === 'ativo' && (v.data || '').startsWith(yyyy_mm)) 
@@ -261,10 +281,14 @@
             return 0.01; 
         }
 
-        function adicionarVenda(e) {
+        // Funções Globais (ligadas ao window para funcionar com HTML onsubmit/onclick)
+        window.adicionarVenda = async function(e) {
             e.preventDefault();
+            const btnSubmit = e.target.querySelector('button[type="submit"]');
+            btnSubmit.disabled = true;
+            btnSubmit.textContent = 'Salvando na nuvem...';
+
             const novaVenda = {
-                id: Date.now(),
                 nome: document.getElementById('nome').value,
                 indicacao: document.getElementById('indicacao').value,
                 contrato: document.getElementById('contrato').value,
@@ -274,29 +298,34 @@
                 status: 'ativo',
                 mesesSuspensos: [] 
             };
-            vendas.push(novaVenda);
-            salvarDados();
-            e.target.reset();
-            document.getElementById('data').value = dataAtualStr; 
-            atualizarDashboard();
+
+            try {
+                await addDoc(collection(db, "vendas"), novaVenda);
+                e.target.reset();
+                document.getElementById('data').value = dataAtualStr; 
+            } catch (error) {
+                console.error("Erro ao adicionar documento: ", error);
+                alert("Erro ao salvar venda. Verifique sua conexão.");
+            } finally {
+                btnSubmit.disabled = false;
+                btnSubmit.textContent = 'Cadastrar Venda';
+            }
         }
 
-        function cancelarVenda(id) {
+        window.cancelarVenda = async function(id) {
             if(confirm('Tem certeza que deseja cancelar esta venda? Você perderá o restante da comissão.')) {
-                let venda = vendas.find(v => v.id === id);
-                if(venda) {
-                    venda.status = 'cancelado';
-                    salvarDados();
-                    atualizarDashboard();
+                try {
+                    const vendaRef = doc(db, "vendas", id);
+                    await updateDoc(vendaRef, { status: 'cancelado' });
+                } catch (error) {
+                    console.error("Erro ao cancelar: ", error);
                 }
             }
         }
 
-        // Dashboard e Cálculos
-        function atualizarDashboard() {
+        window.atualizarDashboard = function() {
             try {
                 const mesSelecionado = document.getElementById('mesFiltro').value;
-                
                 const volumeVendidoNoMes = obterVolumeMes(mesSelecionado);
                 const taxaMesSelecionado = obterTaxaComissao(volumeVendidoNoMes);
                 
@@ -317,15 +346,11 @@
                     
                     const qtdParcelas = venda.tipo === 'automovel' ? 4 : 12;
                     const valorParcela = comissaoTotalVenda / qtdParcelas;
-
                     const mesInicioPagamento = getPrimeiroMesPagamento(dataSegura);
-                    
-                    // Fallback para evitar travamentos com dados antigos
                     const suspensos = venda.mesesSuspensos || []; 
 
                     for(let i = 0; i < qtdParcelas; i++) {
                         let mesDaParcela = addMonths(mesInicioPagamento, i);
-                        
                         if(mesDaParcela === mesSelecionado) {
                             if(!suspensos.includes(mesDaParcela)) {
                                 comissaoReceberNoMes += valorParcela;
@@ -337,60 +362,54 @@
                 document.getElementById('comissaoVariavel').textContent = formatarMoeda(comissaoReceberNoMes);
                 document.getElementById('totalReceber').textContent = formatarMoeda(FIXO + comissaoReceberNoMes);
 
-                renderizarTabela();
+                window.renderizarTabela();
             } catch (error) {
                 console.error("Erro ao atualizar o painel: ", error);
-                // Mesmo com erro, tenta forçar a renderização da tabela para não sumir
-                renderizarTabela();
             }
         }
 
-        function renderizarTabela() {
+        window.renderizarTabela = function() {
             const tbody = document.getElementById('corpoTabela');
             if(!tbody) return;
             tbody.innerHTML = '';
 
-            try {
-                const vendasOrdenadas = [...vendas].sort((a,b) => (b.data || '').localeCompare(a.data || ''));
+            const vendasOrdenadas = [...vendas].sort((a,b) => (b.data || '').localeCompare(a.data || ''));
 
-                vendasOrdenadas.forEach(venda => {
-                    const tr = document.createElement('tr');
-                    
-                    const statusBadge = venda.status === 'ativo' 
-                        ? `<span class="badge ativo">Ativo</span>` 
-                        : `<span class="badge cancelado">Cancelado</span>`;
+            vendasOrdenadas.forEach(venda => {
+                const tr = document.createElement('tr');
+                const statusBadge = venda.status === 'ativo' 
+                    ? `<span class="badge ativo">Ativo</span>` 
+                    : `<span class="badge cancelado">Cancelado</span>`;
 
-                    const dataSegura = venda.data || dataAtualStr;
-                    const valorSeguro = parseFloat(venda.valor) || 0;
-                    const nomeSeguro = venda.nome || 'Sem Nome';
-                    const indSeguro = venda.indicacao || '-';
-                    const ctrSeguro = venda.contrato || '-';
-                    const mesInicio = getPrimeiroMesPagamento(dataSegura);
+                const dataSegura = venda.data || dataAtualStr;
+                const valorSeguro = parseFloat(venda.valor) || 0;
+                const nomeSeguro = venda.nome || 'Sem Nome';
+                const indSeguro = venda.indicacao || '-';
+                const ctrSeguro = venda.contrato || '-';
+                const mesInicio = getPrimeiroMesPagamento(dataSegura);
 
-                    tr.innerHTML = `
-                        <td>${formatarDataBR(dataSegura)}</td>
-                        <td><strong>${nomeSeguro}</strong></td>
-                        <td>Ind: ${indSeguro}<br>Ctr: ${ctrSeguro}</td>
-                        <td>${venda.tipo === 'automovel' ? 'Auto (4x)' : 'Imóvel (12x)'}</td>
-                        <td>${formatarMoeda(valorSeguro)}</td>
-                        <td>${formatarMesAno(mesInicio)}</td>
-                        <td>${statusBadge}</td>
-                        <td>
-                            <button class="btn-manage" onclick="abrirModalParcelas(${venda.id})">Parcelas</button>
-                            ${venda.status === 'ativo' ? `<button class="btn-danger" onclick="cancelarVenda(${venda.id})">Cancelar</button>` : ''}
-                        </td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-            } catch (error) {
-                console.error("Erro ao renderizar tabela: ", error);
-            }
+                tr.innerHTML = `
+                    <td>${formatarDataBR(dataSegura)}</td>
+                    <td><strong>${nomeSeguro}</strong></td>
+                    <td>Ind: ${indSeguro}<br>Ctr: ${ctrSeguro}</td>
+                    <td>${venda.tipo === 'automovel' ? 'Auto (4x)' : 'Imóvel (12x)'}</td>
+                    <td>${formatarMoeda(valorSeguro)}</td>
+                    <td>${window.formatarMesAno(mesInicio)}</td>
+                    <td>${statusBadge}</td>
+                    <td>
+                        <button class="btn-manage" onclick="abrirModalParcelas('${venda.id}')">Parcelas</button>
+                        ${venda.status === 'ativo' ? `<button class="btn-danger" onclick="cancelarVenda('${venda.id}')">Cancelar</button>` : ''}
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
         }
 
-        // Modal de Parcelas
-        function abrirModalParcelas(id) {
+        window.abrirModalParcelas = function(id) {
             const venda = vendas.find(v => v.id === id);
             if(!venda) return;
+            
+            vendaIdAbertaNoModal = id; // Marca qual venda está aberta no modal
 
             document.getElementById('modalClienteNome').textContent = venda.nome || 'Sem Nome';
             
@@ -432,13 +451,13 @@
 
                 row.innerHTML = `
                     <div>
-                        <strong>Parcela ${i+1}</strong> - ${formatarMesAno(mesParcela)}<br>
+                        <strong>Parcela ${i+1}</strong> - ${window.formatarMesAno(mesParcela)}<br>
                         <small style="color:var(--porto-blue); font-weight:bold;">${formatarMoeda(valorParcela)}</small>
                         <br><span style="font-size:11px; color:#888;">Recebe em: ${dataPagamento}</span>
                     </div>
                     <div>
                         <button class="toggle-btn ${toggleClass}" 
-                            ${isCancelado ? 'disabled' : `onclick="toggleParcela(${venda.id}, '${mesParcela}')"`}>
+                            ${isCancelado ? 'disabled' : `onclick="toggleParcela('${venda.id}', '${mesParcela}')"`}>
                             ${toggleText}
                         </button>
                     </div>
@@ -449,27 +468,31 @@
             document.getElementById('modalParcelas').style.display = 'flex';
         }
 
-        function toggleParcela(vendaId, mesParcela) {
+        window.toggleParcela = async function(vendaId, mesParcela) {
             let venda = vendas.find(v => v.id === vendaId);
             if(venda) {
-                venda.mesesSuspensos = venda.mesesSuspensos || [];
-                if(venda.mesesSuspensos.includes(mesParcela)) {
-                    venda.mesesSuspensos = venda.mesesSuspensos.filter(m => m !== mesParcela);
+                let suspensosAtualizados = venda.mesesSuspensos || [];
+                if(suspensosAtualizados.includes(mesParcela)) {
+                    suspensosAtualizados = suspensosAtualizados.filter(m => m !== mesParcela);
                 } else {
-                    venda.mesesSuspensos.push(mesParcela);
+                    suspensosAtualizados.push(mesParcela);
                 }
-                salvarDados();
-                abrirModalParcelas(vendaId); 
-                atualizarDashboard();
+                
+                try {
+                    const vendaRef = doc(db, "vendas", vendaId);
+                    await updateDoc(vendaRef, { mesesSuspensos: suspensosAtualizados });
+                    // Não precisamos chamar atualizarDashboard() aqui porque o onSnapshot fará isso automaticamente
+                } catch (error) {
+                    console.error("Erro ao atualizar parcela: ", error);
+                }
             }
         }
 
-        function fecharModal() {
+        window.fecharModal = function() {
+            vendaIdAbertaNoModal = null;
             document.getElementById('modalParcelas').style.display = 'none';
         }
 
-        // Inicializa
-        atualizarDashboard();
     </script>
 </body>
 </html>
